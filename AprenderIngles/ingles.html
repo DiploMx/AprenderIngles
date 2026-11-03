@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inglés Progresivo - Aprende y Sube de Nivel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #0d0d11; color: #ffffff; }
+        .card { background-color: #18181f; border: 1px solid #272732; }
+        .hidden-view { display: none; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <!-- Navbar / Stats -->
+    <nav class="flex flex-wrap justify-between items-center bg-[#18181f]/80 backdrop-blur-md p-4 rounded-2xl border border-[#272732] mb-8 sticky top-4 z-50">
+        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-500">EnglishApp</h1>
+        <div class="flex items-center gap-4 text-sm font-medium mt-4 md:mt-0">
+            <div class="flex items-center gap-1 text-orange-400">🔥 <span id="ui-streak">0</span> días</div>
+            <div class="flex items-center gap-1 text-blue-400">⚡ <span id="ui-xp">0</span> XP</div>
+            <button id="btn-auth" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition">Iniciar Sesión</button>
+        </div>
+    </nav>
+
+    <!-- Vistas de la App -->
+    <main id="app-container" class="max-w-4xl mx-auto space-y-6">
+        
+        <!-- Dashboard de Niveles -->
+        <section id="view-dashboard" class="space-y-6">
+            <h2 class="text-2xl font-bold">Tu Ruta de Aprendizaje</h2>
+            <div id="levels-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Los niveles se inyectan por JS -->
+            </div>
+        </section>
+
+        <!-- Vista de Módulo (Teoría) -->
+        <section id="view-module" class="hidden-view card p-6 rounded-2xl space-y-6">
+            <button onclick="navigate('dashboard')" class="text-gray-400 hover:text-white text-sm flex items-center gap-2">← Volver</button>
+            <h2 id="mod-title" class="text-2xl font-bold text-blue-400">Título</h2>
+            <div id="mod-content" class="text-gray-300 leading-relaxed space-y-4"></div>
+            <button onclick="startQuiz()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl mt-4">Iniciar Test de Módulo</button>
+        </section>
+
+        <!-- Vista de Quiz -->
+        <section id="view-quiz" class="hidden-view card p-6 rounded-2xl space-y-6">
+            <div class="flex justify-between items-center">
+                <span id="quiz-progress" class="text-sm text-gray-400">Pregunta 1 de 5</span>
+                <button onclick="navigate('dashboard')" class="text-gray-400 hover:text-white text-sm">Abandonar</button>
+            </div>
+            <h3 id="quiz-question" class="text-xl font-medium mt-4">Pregunta</h3>
+            <div id="quiz-options" class="flex flex-col gap-3 mt-6"></div>
+            <div id="quiz-feedback" class="hidden p-4 rounded-xl mt-4 border"></div>
+            <button id="btn-next-q" onclick="nextQuestion()" class="hidden w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl mt-4">Siguiente</button>
+        </section>
+
+    </main>
+
+    <!-- FIREBASE & LÓGICA DE LA APP -->
+    <script type="module">
+        // 1. IMPORTACIONES DE FIREBASE MODULAR SDK
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // 2. REEMPLAZA ESTO CON TUS CLAVES DE LA CONSOLA DE FIREBASE
+        const firebaseConfig = {
+            apiKey: "TU_API_KEY",
+            authDomain: "TU_AUTH_DOMAIN",
+            projectId: "TU_PROJECT_ID",
+            storageBucket: "TU_STORAGE_BUCKET",
+            messagingSenderId: "TU_MESSAGING_SENDER_ID",
+            appId: "TU_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        // 3. ESTADO GLOBAL
+        let currentUser = null;
+        let userData = {
+            xp: 0,
+            streak: 0,
+            lastActive: null,
+            unlockedLevels: ['A1'],
+            completedModules: []
+        };
+        let currentQuizData = null;
+        let currentQuestionIndex = 0;
+        let correctAnswersCount = 0;
+
+        // 4. BASE DE DATOS DE CONTENIDO
+        const database = {
+            levels: [
+                {
+                    id: "A1", name: "A1 - Principiante",
+                    modules: [
+                        {
+                            id: "A1-1", title: "El Verbo To Be (Ser/Estar)",
+                            theory: "<p>El verbo 'to be' es la base del inglés. Sus formas en presente son: <b>am, is, are</b>.</p><ul><li>I <b>am</b> (Yo soy/estoy)</li><li>He/She/It <b>is</b> (Él/Ella/Eso es/está)</li><li>You/We/They <b>are</b> (Tú/Nosotros/Ellos son/están)</li></ul>",
+                            quiz: [
+                                { q: "Completa: She ___ a doctor.", options: ["am", "is", "are"], answer: "is", explanation: "Se usa 'is' para la tercera persona del singular (he, she, it)." },
+                                { q: "Completa: They ___ in the park.", options: ["am", "is", "are"], answer: "are", explanation: "Se usa 'are' para plurales como they." },
+                                { q: "¿Qué significa 'I am happy'?", options: ["Yo soy feliz", "Yo tengo feliz", "Yo era feliz"], answer: "Yo soy feliz", explanation: "'am' es la forma del verbo to be para 'I' en presente." }
+                            ]
+                        }
+                    ],
+                    bossTest: [
+                        { q: "Traduce: Nosotros somos estudiantes.", options: ["We is students", "We are students", "You are students"], answer: "We are students", explanation: "Nosotros es 'We' y le corresponde el verbo 'are'." },
+                        { q: "Completa: It ___ a beautiful day.", options: ["is", "are", "am"], answer: "is", explanation: "'It' requiere 'is'." }
+                    ]
+                },
+                {
+                    id: "A2", name: "A2 - Básico", lockedMessage: "Completa el nivel A1 y su Boss Test para desbloquear.",
+                    modules: [
+                        {
+                            id: "A2-1", title: "Pasado Simple",
+                            theory: "<p>El pasado simple describe acciones terminadas.</p>",
+                            quiz: [
+                                { q: "Pasado de 'Go'", options: ["Goes", "Went", "Gone"], answer: "Went", explanation: "El pasado irregular de Go es Went." }
+                            ]
+                        }
+                    ], bossTest: []
+                }
+            ]
+        };
+
+        // 5. AUTENTICACIÓN Y SINCRONIZACIÓN
+        onAuthStateChanged(auth, async (user) => {
+            const btnAuth = document.getElementById("btn-auth");
+            if (user) {
+                currentUser = user;
+                btnAuth.textContent = "Cerrar Sesión";
+                btnAuth.onclick = logout;
+                await loadCloudData();
+            } else {
+                currentUser = null;
+                btnAuth.textContent = "Iniciar con Google";
+                btnAuth.onclick = login;
+                loadLocalData();
+            }
+            renderDashboard();
+        });
+
+        async function login() {
+            try { await signInWithPopup(auth, provider); } 
+            catch (error) { console.error("Error iniciando sesión:", error); }
+        }
+
+        async function logout() {
+            await signOut(auth);
+            userData = { xp: 0, streak: 0, lastActive: null, unlockedLevels: ['A1'], completedModules: [] };
+            renderDashboard();
+        }
+
+        async function loadCloudData() {
+            try {
+                const docRef = doc(db, "users", currentUser.uid);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    userData = docSnap.data().progress;
+                }
+            } catch (error) { console.error("Error leyendo Firestore:", error); loadLocalData(); }
+            updateUIStats();
+        }
+
+        function loadLocalData() {
+            const local = localStorage.getItem('ingles_progreso');
+            if (local) userData = JSON.parse(local);
+            updateUIStats();
+        }
+
+        async function saveProgress() {
+            localStorage.setItem('ingles_progreso', JSON.stringify(userData));
+            updateUIStats();
+            if (currentUser) {
+                try { await setDoc(doc(db, "users", currentUser.uid), { progress: userData, lastUpdate: new Date() }, { merge: true }); } 
+                catch (error) { console.error("Error guardando en nube:", error); }
+            }
+        }
+
+        // 6. MOTOR DE NAVEGACIÓN Y RENDERIZADO
+        window.navigate = (viewId) => {
+            document.querySelectorAll('main > section').forEach(el => el.classList.add('hidden-view'));
+            document.getElementById(`view-${viewId}`).classList.remove('hidden-view');
+            if(viewId === 'dashboard') renderDashboard();
+        };
+
+        function updateUIStats() {
+            document.getElementById('ui-xp').textContent = userData.xp;
+            document.getElementById('ui-streak').textContent = userData.streak;
+        }
+
+        function renderDashboard() {
+            const container = document.getElementById('levels-container');
+            container.innerHTML = '';
+            
+            database.levels.forEach((level, index) => {
+                const isUnlocked = userData.unlockedLevels.includes(level.id);
+                const card = document.createElement('div');
+                card.className = `card p-6 rounded-2xl ${isUnlocked ? 'border-blue-900/50' : 'opacity-60 grayscale'}`;
+                
+                let html = `<h3 class="text-xl font-bold ${isUnlocked ? 'text-white' : 'text-gray-500'}">${level.name}</h3>`;
+                
+                if (isUnlocked) {
+                    html += `<div class="mt-4 space-y-2">`;
+                    level.modules.forEach(mod => {
+                        const isDone = userData.completedModules.includes(mod.id);
+                        html += `
+                            <button onclick="openModule('${level.id}', '${mod.id}')" 
+                                class="w-full text-left p-3 rounded-lg border ${isDone ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-gray-700 bg-gray-800/50 hover:bg-gray-700'}">
+                                ${isDone ? '✅' : '📖'} ${mod.title}
+                            </button>
+                        `;
+                    });
+                    
+                    const allModulesDone = level.modules.every(m => userData.completedModules.includes(m.id));
+                    if(allModulesDone) {
+                        html += `
+                            <button onclick="startBossTest('${level.id}')" 
+                                class="w-full mt-4 bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 rounded-lg">
+                                ⚔️ Boss Test ${level.id}
+                            </button>`;
+                    }
+                    html += `</div>`;
+                } else {
+                    html += `<p class="mt-4 text-sm text-gray-500">🔒 ${level.lockedMessage}</p>`;
+                }
+                
+                card.innerHTML = html;
+                container.appendChild(card);
+            });
+        }
+
+        // 7. LÓGICA DE MÓDULOS Y QUIZZES
+        window.openModule = (levelId, moduleId) => {
+            const level = database.levels.find(l => l.id === levelId);
+            const mod = level.modules.find(m => m.id === moduleId);
+            
+            document.getElementById('mod-title').textContent = mod.title;
+            document.getElementById('mod-content').innerHTML = mod.theory;
+            
+            currentQuizData = { type: 'module', data: mod.quiz, id: mod.id, levelId: level.id };
+            window.navigate('module');
+        };
+
+        window.startBossTest = (levelId) => {
+            const level = database.levels.find(l => l.id === levelId);
+            currentQuizData = { type: 'boss', data: level.bossTest, levelId: level.id };
+            startQuiz();
+        };
+
+        window.startQuiz = () => {
+            currentQuestionIndex = 0;
+            correctAnswersCount = 0;
+            renderQuestion();
+            window.navigate('quiz');
+        };
+
+        function renderQuestion() {
+            const qData = currentQuizData.data[currentQuestionIndex];
+            document.getElementById('quiz-progress').textContent = `Pregunta ${currentQuestionIndex + 1} de ${currentQuizData.data.length}`;
+            document.getElementById('quiz-question').textContent = qData.q;
+            
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = '';
+            
+            qData.options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = "text-left p-4 rounded-xl border border-gray-700 bg-gray-800 hover:bg-gray-700 transition";
+                btn.textContent = opt;
+                btn.onclick = () => checkAnswer(opt, btn, qData.answer, qData.explanation);
+                optionsContainer.appendChild(btn);
+            });
+
+            document.getElementById('quiz-feedback').classList.add('hidden');
+            document.getElementById('btn-next-q').classList.add('hidden');
+        }
+
+        function checkAnswer(selected, btnElement, correct, explanation) {
+            const options = document.getElementById('quiz-options').children;
+            for(let opt of options) opt.disabled = true;
+
+            const feedbackEl = document.getElementById('quiz-feedback');
+            feedbackEl.classList.remove('hidden');
+
+            if (selected === correct) {
+                btnElement.classList.replace('border-gray-700', 'border-green-500');
+                btnElement.classList.replace('bg-gray-800', 'bg-green-900/50');
+                feedbackEl.className = "p-4 rounded-xl mt-4 border border-green-500/50 bg-green-500/10 text-green-400";
+                feedbackEl.innerHTML = `<b>¡Correcto!</b> ${explanation}`;
+                correctAnswersCount++;
+                userData.xp += 10;
+            } else {
+                btnElement.classList.replace('border-gray-700', 'border-red-500');
+                btnElement.classList.replace('bg-gray-800', 'bg-red-900/50');
+                feedbackEl.className = "p-4 rounded-xl mt-4 border border-red-500/50 bg-red-500/10 text-red-400";
+                feedbackEl.innerHTML = `<b>Incorrecto.</b> La respuesta era "${correct}". ${explanation}`;
+            }
+
+            document.getElementById('btn-next-q').classList.remove('hidden');
+            saveProgress();
+        }
+
+        window.nextQuestion = () => {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < currentQuizData.data.length) {
+                renderQuestion();
+            } else {
+                finishQuiz();
+            }
+        };
+
+        function finishQuiz() {
+            const total = currentQuizData.data.length;
+            const percentage = (correctAnswersCount / total) * 100;
+            
+            let message = `Obtuviste ${correctAnswersCount} de ${total} (${percentage}%).\n\n`;
+
+            if (currentQuizData.type === 'module') {
+                if (percentage >= 80) {
+                    if (!userData.completedModules.includes(currentQuizData.id)) {
+                        userData.completedModules.push(currentQuizData.id);
+                        userData.xp += 50;
+                    }
+                    message += "¡Módulo completado con éxito!";
+                } else {
+                    message += "Necesitas al menos 80% para aprobar el módulo. ¡Sigue practicando!";
+                }
+            } else if (currentQuizData.type === 'boss') {
+                if (percentage >= 80) {
+                    const nextLevelMapping = { 'A1': 'A2', 'A2': 'B1', 'B1': 'B2', 'B2': 'C1' };
+                    const nextLevel = nextLevelMapping[currentQuizData.levelId];
+                    if (nextLevel && !userData.unlockedLevels.includes(nextLevel)) {
+                        userData.unlockedLevels.push(nextLevel);
+                        userData.xp += 200;
+                        message += `¡Felicidades! Has desbloqueado el nivel ${nextLevel}.`;
+                    }
+                } else {
+                    message += "Necesitas al menos 80% para subir de nivel.";
+                }
+            }
+
+            alert(message);
+            saveProgress();
+            window.navigate('dashboard');
+        }
+
+    </script>
+</body>
+</html>
